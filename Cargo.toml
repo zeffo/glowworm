@@ -1,0 +1,12 @@
+[package]
+name = "adalight"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+colorgrad = "0.6.2"
+libwayshot = "0.3.0"
+serialport = "4.3.0"
+image = { version = "0.24" }
+color-thief = "0.2.2"
+serde_json = "1.0.116"
