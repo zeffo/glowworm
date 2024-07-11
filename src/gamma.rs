@@ -35,6 +35,13 @@ impl GammaLookup {
     pub fn blue(&self, b: u8) -> u8 {
         self.table[usize::from(b)].b
     }
+
+    pub fn correct_rgb(&self, rgb: &mut [u8]) {
+        rgb[0] = self.red(rgb[0]);
+        rgb[1] = self.blue(rgb[1]);
+        rgb[2] = self.green(rgb[2]);
+    }
+
 }
 
 impl Default for GammaLookup {
