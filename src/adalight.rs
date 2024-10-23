@@ -3,7 +3,7 @@ use serialport::SerialPort;
 use crate::{modes::GlowMode, GammaLookup};
 use std::time::Duration;
 
-struct Packet {
+pub struct Packet {
     _data: Vec<u8>,
 }
 
@@ -21,23 +21,21 @@ impl Packet {
 }
 
 #[allow(dead_code)]
-pub struct Adalight<'a> {
+pub struct Adalight {
     port: Box<dyn SerialPort>,
     baud_rate: u32,
     leds: u16,
     header: [u8; 6],
     gamma: GammaLookup,
-    mode: &'a mut dyn GlowMode,
     max_brightness: u8,
 }
 
-impl<'a> Adalight<'a> {
+impl Adalight {
     pub fn new(
         port: &str,
         baud_rate: u32,
         leds: u16,
         timeout: Duration,
-        mode: &'a mut dyn GlowMode,
         max_brightness: u8,
     ) -> Self {
         let header = Self::get_header(leds);
@@ -55,7 +53,6 @@ impl<'a> Adalight<'a> {
             leds,
             header,
             gamma,
-            mode,
             max_brightness,
         }
     }
@@ -74,21 +71,13 @@ impl<'a> Adalight<'a> {
         }
     }
 
-    fn pack(&self, payload: &mut [u8]) -> Packet {
+    pub fn pack(&self, payload: &mut [u8]) -> Packet {
         self.gamma_correct(payload);
         let _data = [&self.header, &*payload].concat();
         Packet { _data }
     }
 
-    fn send_packet(&mut self, packet: &Packet) {
+    pub fn send_packet(&mut self, packet: &Packet) {
         self.port.write_all(packet.slice()).unwrap();
-    }
-
-    pub fn start(&mut self) {
-        loop {
-            let mut colors = self.mode.get_colors();
-            let packet = self.pack(&mut colors);
-            self.send_packet(&packet);
-        }
     }
 }

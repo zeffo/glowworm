@@ -38,6 +38,8 @@ use wayland_protocols_wlr::screencopy::v1::client::{
     zwlr_screencopy_manager_v1::ZwlrScreencopyManagerV1,
 };
 
+use crate::adalight::Adalight;
+
 pub trait GlowMode {
     fn get_colors(&mut self) -> Vec<u8>;
 }
@@ -220,6 +222,7 @@ pub struct AmbientState {
     latest_frame: Option<Vec<u8>>,
     led_config: LEDConfig,
     algorithm: AmbientAlgorithm,
+    ada: Adalight,
 }
 
 impl AmbientState {
@@ -227,6 +230,7 @@ impl AmbientState {
         conn: &Connection,
         led_config: LEDConfig,
         algorithm: AmbientAlgorithm,
+        ada: Adalight,
     ) -> (Self, EventQueue<Self>) {
         let (globals, queue) = registry_queue_init(conn).unwrap();
         let qh = queue.handle();
@@ -253,6 +257,7 @@ impl AmbientState {
                 latest_frame: None,
                 led_config,
                 algorithm,
+                ada,
             },
             queue,
         )
@@ -374,11 +379,13 @@ impl Dispatch<ZwlrScreencopyFrameV1, ()> for AmbientState {
             },
             zwlr_screencopy_frame_v1::Event::Ready { .. } => {
                 let (frameinfo, frame, buffer, pool) = state.surfaces.pop_front().unwrap();
-                let pixels = match &state.algorithm {
+                let mut pixels = match &state.algorithm {
                     AmbientAlgorithm::Samples => state.get_pixel_samples(frameinfo),
                     AmbientAlgorithm::Average => state.get_pixel_average(frameinfo),
                 };
-                assert_eq!(pixels.len(), state.led_config.leds.len() * 3);
+                // assert_eq!(pixels.len(), state.led_config.leds.len() * 3);
+                let packet = state.ada.pack(&mut pixels);
+                state.ada.send_packet(&packet);
                 state.latest_frame = Some(pixels);
                 frame.destroy();
                 buffer.destroy();
@@ -493,10 +500,20 @@ pub struct Ambient {
 }
 
 impl Ambient {
-    pub fn new(led_config: LEDConfig, algorithm: AmbientAlgorithm) -> Self {
+    pub fn new(led_config: LEDConfig, algorithm: AmbientAlgorithm, ada: Adalight) -> Self {
         let conn = Connection::connect_to_env().unwrap();
-        let (state, queue) = AmbientState::from_connection(&conn, led_config, algorithm);
+        let (state, queue) = AmbientState::from_connection(&conn, led_config, algorithm, ada);
         Ambient { state, queue, conn }
+    }
+    pub fn start(&mut self) {
+        loop {
+            self.queue.blocking_dispatch(&mut self.state).unwrap();
+            let qh = self.queue.handle();
+
+            self.state
+                .screencopy_manager
+                .capture_output(1, &self.state.wl_output, &qh, ());
+        }
     }
 }
 

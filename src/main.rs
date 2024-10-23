@@ -35,14 +35,13 @@ fn main() {
 
     let conf = read_to_string("/home/aman/.config/glowworm/config.json").unwrap();
     let config: LEDConfig = serde_json::from_str(&conf).unwrap();
-    let mut mode = Ambient::new(config, AmbientAlgorithm::Samples);
     let mut ada = Adalight::new(
         "/dev/ttyACM0",
         115200,
         LEDS,
         Duration::from_millis(1000),
-        &mut mode,
         180,
     );
-    ada.start();
+    let mut mode = Ambient::new(config, AmbientAlgorithm::Samples, ada);
+    mode.start();
 }
