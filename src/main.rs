@@ -1,3 +1,4 @@
+use std::fs::read_to_string;
 use std::time::Duration;
 
 use colorgrad::Color;
@@ -7,7 +8,7 @@ mod modes;
 
 use adalight::Adalight;
 use gamma::GammaLookup;
-use modes::{Ambient, DynamicGradient};
+use modes::{Ambient, AmbientAlgorithm, LEDConfig};
 
 struct GlowColor {
     r: u8,
@@ -15,6 +16,7 @@ struct GlowColor {
     b: u8,
 }
 
+#[allow(dead_code)]
 impl GlowColor {
     fn from_rgb(r: u8, g: u8, b: u8) -> Self {
         GlowColor { r, g, b }
@@ -31,15 +33,16 @@ fn main() {
     const LEDS: u16 = 120;
     // let mut mode = DynamicGradient::from_colors(colors, LEDS);
 
-    // let conf = read_to_string("config.json").unwrap();
-    // let config: LEDConfig = serde_json::from_str(&conf).unwrap();
-    let mut mode = Ambient::new();
+    let conf = read_to_string("/home/aman/.config/glowworm/config.json").unwrap();
+    let config: LEDConfig = serde_json::from_str(&conf).unwrap();
+    let mut mode = Ambient::new(config, AmbientAlgorithm::Samples);
     let mut ada = Adalight::new(
         "/dev/ttyACM0",
         115200,
         LEDS,
         Duration::from_millis(1000),
         &mut mode,
+        180,
     );
     ada.start();
 }

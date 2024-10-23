@@ -41,7 +41,6 @@ impl GammaLookup {
         rgb[1] = self.blue(rgb[1]);
         rgb[2] = self.green(rgb[2]);
     }
-
 }
 
 impl Default for GammaLookup {

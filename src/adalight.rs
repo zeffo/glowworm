@@ -4,11 +4,11 @@ use crate::{modes::GlowMode, GammaLookup};
 use std::time::Duration;
 
 struct Packet {
-    _data: Vec<u8>
+    _data: Vec<u8>,
 }
 
 #[allow(dead_code)]
-impl Packet { 
+impl Packet {
     fn slice(&self) -> &[u8] {
         &self._data
     }
@@ -27,21 +27,37 @@ pub struct Adalight<'a> {
     leds: u16,
     header: [u8; 6],
     gamma: GammaLookup,
-    mode: &'a mut dyn GlowMode
+    mode: &'a mut dyn GlowMode,
+    max_brightness: u8,
 }
 
-
 impl<'a> Adalight<'a> {
-
-    pub fn new(port: &str, baud_rate: u32, leds: u16, timeout: Duration, mode: &'a mut dyn GlowMode) -> Self {
+    pub fn new(
+        port: &str,
+        baud_rate: u32,
+        leds: u16,
+        timeout: Duration,
+        mode: &'a mut dyn GlowMode,
+        max_brightness: u8,
+    ) -> Self {
         let header = Self::get_header(leds);
         let mut port = serialport::new(port, baud_rate)
             .timeout(timeout)
-            .open().unwrap();
+            .open()
+            .unwrap();
         port.write_data_terminal_ready(true).unwrap();
-        port.set_flow_control(serialport::FlowControl::Hardware).unwrap();
+        port.set_flow_control(serialport::FlowControl::Hardware)
+            .unwrap();
         let gamma = GammaLookup::new();
-        Self {port, baud_rate, leds, header, gamma, mode}
+        Self {
+            port,
+            baud_rate,
+            leds,
+            header,
+            gamma,
+            mode,
+            max_brightness,
+        }
     }
 
     pub fn get_header(leds: u16) -> [u8; 6] {
@@ -54,14 +70,14 @@ impl<'a> Adalight<'a> {
 
     fn gamma_correct(&self, payload: &mut [u8]) {
         for i in (0..payload.len()).step_by(3) {
-            self.gamma.correct_rgb(&mut payload[i..i+3])
+            self.gamma.correct_rgb(&mut payload[i..i + 3]);
         }
     }
 
     fn pack(&self, payload: &mut [u8]) -> Packet {
         self.gamma_correct(payload);
         let _data = [&self.header, &*payload].concat();
-        Packet {_data}
+        Packet { _data }
     }
 
     fn send_packet(&mut self, packet: &Packet) {
@@ -75,5 +91,4 @@ impl<'a> Adalight<'a> {
             self.send_packet(&packet);
         }
     }
-
 }
