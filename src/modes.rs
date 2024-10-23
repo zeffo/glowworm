@@ -2,9 +2,12 @@ use std::{
     collections::VecDeque,
     ffi::CStr,
     fs::File,
+    io::Cursor,
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use image::codecs::png::PngEncoder;
+use image::{ExtendedColorType, GenericImageView, ImageEncoder};
 use memmap::MmapMut;
 
 use nix::{
@@ -174,6 +177,25 @@ fn create_shm_fd() -> std::io::Result<OwnedFd> {
 }
 
 #[allow(dead_code)]
+fn save_image(image: &MmapMut) {
+    let mut image_fixed = Vec::new();
+    image.chunks(4).for_each(|c| {
+        image_fixed.push(c[2]);
+        image_fixed.push(c[1]);
+        image_fixed.push(c[0]);
+        image_fixed.push(255);
+    });
+
+    let mut buff = Cursor::new(Vec::new());
+    PngEncoder::new(&mut buff)
+        .write_image(image_fixed.as_slice(), 2560, 1440, ExtendedColorType::Rgba8)
+        .unwrap();
+    let image =
+        image::load_from_memory_with_format(buff.get_ref(), image::ImageFormat::Png).unwrap();
+    image.save("test.png").unwrap();
+}
+
+#[allow(dead_code)]
 struct FrameInfo {
     file: File,
     height: u32,
@@ -238,19 +260,19 @@ impl AmbientState {
     fn get_pixel_average(&self, frameinfo: FrameInfo) -> Vec<u8> {
         let mmap = unsafe { MmapMut::map_mut(&frameinfo.file).unwrap() };
         let raw: Vec<&[u8]> = mmap.chunks(4).collect();
-        let image: Vec<&[&[u8]]> = raw.chunks(frameinfo.height as usize).collect();
+        let image: Vec<&[&[u8]]> = raw.chunks(frameinfo.width as usize).collect();
         let mut pixels = vec![];
         for (x, y, x1, y1) in &self.led_config.leds {
             let mut red = 0_u32;
             let mut blue = 0_u32;
             let mut green = 0_u32;
             let mut count = 0_u32;
-            for i in *x..*x1 {
-                for j in *y..*y1 {
+            for j in *x..*x1 {
+                for i in *y..*y1 {
                     let px = image[i as usize][j as usize];
                     red += px[2] as u32;
-                    blue += px[1] as u32;
-                    green += px[0] as u32;
+                    green += px[1] as u32;
+                    blue += px[0] as u32;
                     count += 1;
                 }
             }
@@ -266,15 +288,20 @@ impl AmbientState {
     fn get_pixel_samples(&self, frameinfo: FrameInfo) -> Vec<u8> {
         let mmap = unsafe { MmapMut::map_mut(&frameinfo.file).unwrap() };
         let raw: Vec<&[u8]> = mmap.chunks(4).collect();
-        let image: Vec<&[&[u8]]> = raw.chunks(frameinfo.height as usize).collect();
+        let image: Vec<&[&[u8]]> = raw.chunks(frameinfo.width as usize).collect();
         let mut pixels = vec![];
         for (x, y, _, _) in &self.led_config.leds {
-            let px = image[*x as usize][*y as usize];
+            let px = image[*y as usize][*x as usize];
 
             pixels.push(px[2]);
             pixels.push(px[1]);
             pixels.push(px[0]);
         }
+
+        // println!(
+        //     "TL{:#?} BR{:#?} BL{:#?} TR{:#?}",
+        //     image[0][0], image[2559][1439], image[0][1439], image[2559][0]
+        // );
         pixels
     }
 }
@@ -351,6 +378,7 @@ impl Dispatch<ZwlrScreencopyFrameV1, ()> for AmbientState {
                     AmbientAlgorithm::Samples => state.get_pixel_samples(frameinfo),
                     AmbientAlgorithm::Average => state.get_pixel_average(frameinfo),
                 };
+                assert_eq!(pixels.len(), state.led_config.leds.len() * 3);
                 state.latest_frame = Some(pixels);
                 frame.destroy();
                 buffer.destroy();

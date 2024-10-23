@@ -11,17 +11,16 @@ segments = [20, 40, 20, 40]  # 120 leds
 mods = [(1, 1), (1, 0), (0, 0), (0, 1)]
 mods2 = [()]
 """
-2560, 1440 -> (1, 1)
-2560, 0 -> (1, 0)
-0, 0 -> 0, 0
-0, 1440 -> 0, 1
+0, 0                2560, 0
 
 
+0, 1440             2560, 1440
 """
 
-with open("config.json") as f:
-    conf = json.load(f)
+# with open("config.json") as f:
+#     conf = json.load(f)["leds"]
 
+conf = []
 i = 3
 seg = segments[i]
 edge = edges[i % 2]
@@ -42,5 +41,5 @@ for y in range(seg):
 img.show()
 
 
-with open("config.json", "w") as f:
-    json.dump(conf, f, indent=4)
+# with open("config.json", "w") as f:
+#     json.dump({"leds": conf}, f, indent=4)
