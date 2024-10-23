@@ -1,13 +1,13 @@
 use std::time::Duration;
 
 use colorgrad::Color;
+mod adalight;
 mod gamma;
 mod modes;
-mod adalight;
 
-use gamma::GammaLookup;
-use modes::DynamicGradient;
 use adalight::Adalight;
+use gamma::GammaLookup;
+use modes::{Ambient, DynamicGradient};
 
 struct GlowColor {
     r: u8,
@@ -17,7 +17,7 @@ struct GlowColor {
 
 impl GlowColor {
     fn from_rgb(r: u8, g: u8, b: u8) -> Self {
-        GlowColor{r, g, b}
+        GlowColor { r, g, b }
     }
     fn to_color(&self) -> Color {
         Color::from_rgba8(self.r, self.g, self.b, 255)
@@ -25,11 +25,21 @@ impl GlowColor {
 }
 
 fn main() {
-    let start = GlowColor::from_rgb(200, 60, 70);
-    let end = GlowColor::from_rgb(250, 110, 151);
-    let colors = vec![start.to_color(), end.to_color(), end.to_color(), start.to_color()];
+    // let start = GlowColor::from_rgb(119, 142, 217);
+    // let end = GlowColor::from_rgb(219, 99, 235);
+    // let colors = vec![start.to_color(), end.to_color(), end.to_color(), start.to_color()];
     const LEDS: u16 = 120;
-    let mut mode = DynamicGradient::from_colors(colors, LEDS);
-    let mut ada = Adalight::new("/dev/ttyACM0", 115200, LEDS, Duration::from_millis(1000), &mut mode); 
+    // let mut mode = DynamicGradient::from_colors(colors, LEDS);
+
+    // let conf = read_to_string("config.json").unwrap();
+    // let config: LEDConfig = serde_json::from_str(&conf).unwrap();
+    let mut mode = Ambient::new();
+    let mut ada = Adalight::new(
+        "/dev/ttyACM0",
+        115200,
+        LEDS,
+        Duration::from_millis(1000),
+        &mut mode,
+    );
     ada.start();
 }
