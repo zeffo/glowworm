@@ -3,7 +3,7 @@ use std::{
     ffi::CStr,
     fs::File,
     io::Cursor,
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Instant, SystemTime, UNIX_EPOCH},
 };
 
 use image::codecs::png::PngEncoder;
@@ -287,21 +287,20 @@ impl AmbientState {
     }
     fn get_pixel_samples(&self, frameinfo: FrameInfo) -> Vec<u8> {
         let mmap = unsafe { MmapMut::map_mut(&frameinfo.file).unwrap() };
-        let raw: Vec<&[u8]> = mmap.chunks(4).collect();
-        let image: Vec<&[&[u8]]> = raw.chunks(frameinfo.width as usize).collect();
+        // let raw: Vec<&[u8]> = mmap.chunks(4).collect();
+        // let image: Vec<&[&[u8]]> = raw.chunks(frameinfo.width as usize).collect();
         let mut pixels = vec![];
         for (x, y, _, _) in &self.led_config.leds {
-            let px = image[*y as usize][*x as usize];
-
-            pixels.push(px[2]);
-            pixels.push(px[1]);
-            pixels.push(px[0]);
+            let idx = ((*y as u32 * frameinfo.width + *x as u32) * 4) as usize;
+            pixels.push(mmap[idx + 2]);
+            pixels.push(mmap[idx + 1]);
+            pixels.push(mmap[idx]);
         }
-
-        // println!(
-        //     "TL{:#?} BR{:#?} BL{:#?} TR{:#?}",
-        //     image[0][0], image[2559][1439], image[0][1439], image[2559][0]
-        // );
+        //
+        // // println!(
+        // //     "TL{:#?} BR{:#?} BL{:#?} TR{:#?}",
+        // //     image[0][0], image[2559][1439], image[0][1439], image[2559][0]
+        // // );
         pixels
     }
 }
@@ -319,24 +318,24 @@ impl Dispatch<ZwlrScreencopyFrameV1, ()> for AmbientState {
             zwlr_screencopy_frame_v1::Event::Failed => {
                 println!("failed")
             }
-            // zwlr_screencopy_frame_v1::Event::LinuxDmabuf {
-            //     format,
-            //     width,
-            //     height,
-            // } => {
-            //     // let fourcc = DrmFourcc::try_from(format).unwrap();
-            //     // let params = state.dma.create_params(qh, ());
-            //     // params.add(fd, plane_idx, offset, stride, modifier_hi, modifier_lo);
-            //     // let buffer = params.create_immed(
-            //     //     width as i32,
-            //     //     height as i32,
-            //     //     format,
-            //     //     Flags::empty(),
-            //     //     qh,
-            //     //     (),
-            //     // );
-            //     // frame.copy(&buffer);
-            // }
+            zwlr_screencopy_frame_v1::Event::LinuxDmabuf {
+                format,
+                width,
+                height,
+            } => {
+                // let fourcc = DrmFourcc::try_from(format).unwrap();
+                // let params = state.dma.create_params(qh, ());
+                // params.add(fd, plane_idx, offset, stride, modifier_hi, modifier_lo);
+                // let buffer = params.create_immed(
+                //     width as i32,
+                //     height as i32,
+                //     format,
+                //     Flags::empty(),
+                //     qh,
+                //     (),
+                // );
+                // frame.copy(&buffer);
+            }
             zwlr_screencopy_frame_v1::Event::Buffer {
                 format,
                 width,
@@ -374,15 +373,16 @@ impl Dispatch<ZwlrScreencopyFrameV1, ()> for AmbientState {
             },
             zwlr_screencopy_frame_v1::Event::Ready { .. } => {
                 let (frameinfo, frame, buffer, pool) = state.surfaces.pop_front().unwrap();
+                frame.destroy();
+                buffer.destroy();
+                pool.destroy();
                 let pixels = match &state.algorithm {
                     AmbientAlgorithm::Samples => state.get_pixel_samples(frameinfo),
                     AmbientAlgorithm::Average => state.get_pixel_average(frameinfo),
                 };
-                assert_eq!(pixels.len(), state.led_config.leds.len() * 3);
+                // assert_eq!(pixels.len(), state.led_config.leds.len() * 3);
+                // let pixels = vec![0, 0, 0];
                 state.latest_frame = Some(pixels);
-                frame.destroy();
-                buffer.destroy();
-                pool.destroy();
             }
             _ => (),
         }
@@ -502,12 +502,14 @@ impl Ambient {
 
 impl GlowMode for Ambient {
     fn get_colors(&mut self) -> Vec<u8> {
+        // let now = Instant::now();
         self.queue.blocking_dispatch(&mut self.state).unwrap();
         let qh = self.queue.handle();
 
         self.state
             .screencopy_manager
             .capture_output(1, &self.state.wl_output, &qh, ());
+        // println!("Finished in {:#?}", now.elapsed());
         if let Some(pixels) = &self.state.latest_frame {
             pixels.clone()
         } else {
