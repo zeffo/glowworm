@@ -197,7 +197,6 @@ fn save_image(image: &MmapMut) {
 
 #[allow(dead_code)]
 struct FrameInfo {
-    file: File,
     height: u32,
     width: u32,
     stride: u32,
@@ -220,6 +219,7 @@ pub struct AmbientState {
     latest_frame: Option<Vec<u8>>,
     led_config: LEDConfig,
     algorithm: AmbientAlgorithm,
+    file: File,
 }
 
 impl AmbientState {
@@ -243,6 +243,7 @@ impl AmbientState {
             .bind(&qh, 1..=WlShm::interface().version, ())
             .unwrap();
         let surfaces = VecDeque::new();
+        let file = File::from(create_shm_fd().unwrap());
         (
             Self {
                 screencopy_manager,
@@ -253,12 +254,13 @@ impl AmbientState {
                 latest_frame: None,
                 led_config,
                 algorithm,
+                file,
             },
             queue,
         )
     }
     fn get_pixel_average(&self, frameinfo: FrameInfo) -> Vec<u8> {
-        let mmap = unsafe { MmapMut::map_mut(&frameinfo.file).unwrap() };
+        let mmap = unsafe { MmapMut::map_mut(&self.file).unwrap() };
         let raw: Vec<&[u8]> = mmap.chunks(4).collect();
         let image: Vec<&[&[u8]]> = raw.chunks(frameinfo.width as usize).collect();
         let mut pixels = vec![];
@@ -286,7 +288,7 @@ impl AmbientState {
         pixels
     }
     fn get_pixel_samples(&self, frameinfo: FrameInfo) -> Vec<u8> {
-        let mmap = unsafe { MmapMut::map_mut(&frameinfo.file).unwrap() };
+        let mmap = unsafe { MmapMut::map_mut(&self.file).unwrap() };
         // let raw: Vec<&[u8]> = mmap.chunks(4).collect();
         // let image: Vec<&[&[u8]]> = raw.chunks(frameinfo.width as usize).collect();
         let mut pixels = vec![];
@@ -344,9 +346,8 @@ impl Dispatch<ZwlrScreencopyFrameV1, ()> for AmbientState {
             } => match format {
                 WEnum::Value(v) => {
                     let size = (height * stride) as u64;
-                    let file = File::from(create_shm_fd().unwrap());
-                    file.set_len(size).unwrap();
-                    let fd = file.as_fd();
+                    state.file.set_len(size).unwrap();
+                    let fd = state.file.as_fd();
                     let pool = state.shm.create_pool(fd, size as i32, qh, ());
                     let buffer = pool.create_buffer(
                         0,
@@ -359,7 +360,6 @@ impl Dispatch<ZwlrScreencopyFrameV1, ()> for AmbientState {
                     );
                     frame.copy(&buffer);
                     let frameinfo = FrameInfo {
-                        file,
                         height,
                         width,
                         stride,
