@@ -358,6 +358,7 @@ impl Dispatch<ZwlrScreencopyFrameV1, ()> for AmbientState {
                         qh,
                         (),
                     );
+                    // frame.copy_with_damage(&buffer);
                     frame.copy(&buffer);
                     let frameinfo = FrameInfo {
                         height,
