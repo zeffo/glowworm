@@ -1,15 +1,13 @@
 use std::{
     collections::VecDeque,
-    ffi::CStr,
     fs::File,
     io::Cursor,
     os::fd::BorrowedFd,
-    time::{Instant, SystemTime, UNIX_EPOCH},
+    time::{SystemTime, UNIX_EPOCH},
 };
 
-use gbm::BufferObjectFlags;
 use image::codecs::png::PngEncoder;
-use image::{ExtendedColorType, GenericImageView, ImageEncoder};
+use image::{ExtendedColorType, ImageEncoder};
 use memmap::MmapMut;
 
 use nix::{
@@ -30,7 +28,7 @@ use wayland_client::{
         wl_shm::{Format, WlShm},
         wl_shm_pool::WlShmPool,
     },
-    Connection, Dispatch, EventQueue, Proxy, QueueHandle, WEnum,
+    Connection, Dispatch, EventQueue, Proxy, QueueHandle,
 };
 use wayland_protocols::wp::linux_dmabuf::zv1::client::{
     zwp_linux_buffer_params_v1::{self, ZwpLinuxBufferParamsV1},
@@ -128,13 +126,14 @@ impl Card {
     }
 }
 
+#[allow(dead_code)]
 fn create_shm_fd() -> std::io::Result<OwnedFd> {
     // Only try memfd on linux and freebsd.
     #[cfg(any(target_os = "linux", target_os = "freebsd"))]
     loop {
         // Create a file that closes on successful execution and seal it's operations.
         match memfd::memfd_create(
-            CStr::from_bytes_with_nul(b"glowworm\0").unwrap(),
+            c"glowworm",
             memfd::MemFdCreateFlag::MFD_CLOEXEC | memfd::MemFdCreateFlag::MFD_ALLOW_SEALING,
         ) {
             Ok(fd) => {
