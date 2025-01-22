@@ -3,9 +3,11 @@ use std::{
     ffi::CStr,
     fs::File,
     io::Cursor,
+    os::fd::BorrowedFd,
     time::{Instant, SystemTime, UNIX_EPOCH},
 };
 
+use gbm::BufferObjectFlags;
 use image::codecs::png::PngEncoder;
 use image::{ExtendedColorType, GenericImageView, ImageEncoder};
 use memmap::MmapMut;
@@ -31,7 +33,8 @@ use wayland_client::{
     Connection, Dispatch, EventQueue, Proxy, QueueHandle, WEnum,
 };
 use wayland_protocols::wp::linux_dmabuf::zv1::client::{
-    zwp_linux_buffer_params_v1::ZwpLinuxBufferParamsV1, zwp_linux_dmabuf_v1::ZwpLinuxDmabufV1,
+    zwp_linux_buffer_params_v1::{self, ZwpLinuxBufferParamsV1},
+    zwp_linux_dmabuf_v1::ZwpLinuxDmabufV1,
 };
 use wayland_protocols_wlr::screencopy::v1::client::{
     zwlr_screencopy_frame_v1::{self, ZwlrScreencopyFrameV1},
@@ -105,6 +108,24 @@ impl GlowMode for DynamicGradient {
 #[derive(Serialize, Deserialize)]
 pub struct LEDConfig {
     leds: Vec<(u16, u16, u16, u16)>, // vec of capture areas for each LED
+}
+
+pub struct Card(std::fs::File);
+
+impl AsFd for Card {
+    fn as_fd(&self) -> BorrowedFd<'_> {
+        self.0.as_fd()
+    }
+}
+
+/// Simple helper methods for opening a `Card`.
+impl Card {
+    pub fn open(path: &str) -> Self {
+        let mut options = std::fs::OpenOptions::new();
+        options.read(true);
+        options.write(true);
+        Card(options.open(path).unwrap())
+    }
 }
 
 fn create_shm_fd() -> std::io::Result<OwnedFd> {
@@ -205,9 +226,19 @@ struct FrameInfo {
 }
 
 #[allow(dead_code)]
+struct DmabufFrameInfo {
+    file: OwnedFd,
+    height: u32,
+    width: u32,
+    stride: u32,
+    format: gbm::Format,
+}
+
+#[allow(dead_code)]
 pub enum AmbientAlgorithm {
     Samples,
     Average,
+    Test,
 }
 
 #[allow(dead_code)]
@@ -216,10 +247,17 @@ pub struct AmbientState {
     dma: ZwpLinuxDmabufV1,
     shm: WlShm,
     wl_output: WlOutput,
-    surfaces: VecDeque<(FrameInfo, ZwlrScreencopyFrameV1, WlBuffer, WlShmPool)>,
+    // surfaces: VecDeque<(FrameInfo, ZwlrScreencopyFrameV1, WlBuffer, WlShmPool)>,
+    surfaces: VecDeque<(
+        DmabufFrameInfo,
+        ZwlrScreencopyFrameV1,
+        WlBuffer,
+        ZwpLinuxBufferParamsV1,
+    )>,
     latest_frame: Option<Vec<u8>>,
     led_config: LEDConfig,
     algorithm: AmbientAlgorithm,
+    gbm: gbm::Device<Card>,
 }
 
 impl AmbientState {
@@ -243,6 +281,8 @@ impl AmbientState {
             .bind(&qh, 1..=WlShm::interface().version, ())
             .unwrap();
         let surfaces = VecDeque::new();
+        let gpu = Card::open("/dev/dri/renderD128");
+        let gbm = gbm::Device::new(gpu).unwrap();
         (
             Self {
                 screencopy_manager,
@@ -253,12 +293,13 @@ impl AmbientState {
                 latest_frame: None,
                 led_config,
                 algorithm,
+                gbm,
             },
             queue,
         )
     }
-    fn get_pixel_average(&self, frameinfo: FrameInfo) -> Vec<u8> {
-        let mmap = unsafe { MmapMut::map_mut(&frameinfo.file).unwrap() };
+    fn get_pixel_average(&self, frameinfo: DmabufFrameInfo) -> Vec<u8> {
+        let mmap = unsafe { MmapMut::map_mut(&File::from(frameinfo.file)).unwrap() };
         let raw: Vec<&[u8]> = mmap.chunks(4).collect();
         let image: Vec<&[&[u8]]> = raw.chunks(frameinfo.width as usize).collect();
         let mut pixels = vec![];
@@ -285,10 +326,8 @@ impl AmbientState {
         }
         pixels
     }
-    fn get_pixel_samples(&self, frameinfo: FrameInfo) -> Vec<u8> {
-        let mmap = unsafe { MmapMut::map_mut(&frameinfo.file).unwrap() };
-        // let raw: Vec<&[u8]> = mmap.chunks(4).collect();
-        // let image: Vec<&[&[u8]]> = raw.chunks(frameinfo.width as usize).collect();
+    fn get_pixel_samples(&self, frameinfo: DmabufFrameInfo) -> Vec<u8> {
+        let mmap = unsafe { MmapMut::map_mut(&File::from(frameinfo.file)).unwrap() };
         let mut pixels = vec![];
         for (x, y, _, _) in &self.led_config.leds {
             let idx = ((*y as u32 * frameinfo.width + *x as u32) * 4) as usize;
@@ -296,11 +335,18 @@ impl AmbientState {
             pixels.push(mmap[idx + 1]);
             pixels.push(mmap[idx]);
         }
-        //
-        // // println!(
-        // //     "TL{:#?} BR{:#?} BL{:#?} TR{:#?}",
-        // //     image[0][0], image[2559][1439], image[0][1439], image[2559][0]
-        // // );
+        pixels
+    }
+
+    fn get_pixel_test(&self, frameinfo: DmabufFrameInfo) -> Vec<u8> {
+        let mmap = unsafe { MmapMut::map_mut(&File::from(frameinfo.file)).unwrap() };
+        let mut pixels = vec![];
+        for (x, y, _, _) in &self.led_config.leds {
+            let idx = ((*y as u32 * frameinfo.width + *x as u32) * 4) as usize;
+            pixels.push(mmap[idx + 2]);
+            pixels.push(mmap[idx + 1]);
+            pixels.push(mmap[idx]);
+        }
         pixels
     }
 }
@@ -323,65 +369,84 @@ impl Dispatch<ZwlrScreencopyFrameV1, ()> for AmbientState {
                 width,
                 height,
             } => {
-                // let fourcc = DrmFourcc::try_from(format).unwrap();
-                // let params = state.dma.create_params(qh, ());
-                // params.add(fd, plane_idx, offset, stride, modifier_hi, modifier_lo);
-                // let buffer = params.create_immed(
-                //     width as i32,
-                //     height as i32,
-                //     format,
-                //     Flags::empty(),
-                //     qh,
-                //     (),
-                // );
-                // frame.copy(&buffer);
-            }
-            zwlr_screencopy_frame_v1::Event::Buffer {
-                format,
-                width,
-                height,
-                stride,
-            } => match format {
-                WEnum::Value(v) => {
-                    let size = (height * stride) as u64;
-                    let file = File::from(create_shm_fd().unwrap());
-                    file.set_len(size).unwrap();
-                    let fd = file.as_fd();
-                    let pool = state.shm.create_pool(fd, size as i32, qh, ());
-                    let buffer = pool.create_buffer(
-                        0,
-                        width as i32,
-                        height as i32,
-                        stride as i32,
-                        v,
-                        qh,
-                        (),
-                    );
-                    frame.copy(&buffer);
-                    let frameinfo = FrameInfo {
-                        file,
-                        height,
+                let bo = state
+                    .gbm
+                    .create_buffer_object::<()>(
                         width,
-                        stride,
-                        format: v,
-                    };
-                    state
-                        .surfaces
-                        .push_back((frameinfo, frame.clone(), buffer, pool));
-                }
-                WEnum::Unknown(_e) => {}
-            },
+                        height,
+                        gbm::Format::Argb8888,
+                        gbm::BufferObjectFlags::LINEAR,
+                    )
+                    .unwrap();
+                let owned_fd = bo.fd().unwrap();
+                let fd = owned_fd.as_fd();
+                let params = state.dma.create_params(qh, ());
+                params.add(fd, 0, 0, bo.stride(), 0, 0);
+                let buf = params.create_immed(
+                    width as i32,
+                    height as i32,
+                    format,
+                    zwp_linux_buffer_params_v1::Flags::empty(),
+                    qh,
+                    (),
+                );
+                frame.copy(&buf);
+                let frameinfo = DmabufFrameInfo {
+                    file: owned_fd,
+                    height,
+                    width,
+                    stride: bo.stride(),
+                    format: gbm::Format::Argb8888,
+                };
+                state
+                    .surfaces
+                    .push_back((frameinfo, frame.clone(), buf, params));
+            }
+            // zwlr_screencopy_frame_v1::Event::Buffer {
+            //     format,
+            //     width,
+            //     height,
+            //     stride,
+            // } => match format {
+            //     WEnum::Value(v) => {
+            //         let size = (height * stride) as u64;
+            //         let file = File::from(create_shm_fd().unwrap());
+            //         file.set_len(size).unwrap();
+            //         let fd = file.as_fd();
+            //         let pool = state.shm.create_pool(fd, size as i32, qh, ());
+            //         let buffer = pool.create_buffer(
+            //             0,
+            //             width as i32,
+            //             height as i32,
+            //             stride as i32,
+            //             v,
+            //             qh,
+            //             (),
+            //         );
+            //         frame.copy(&buffer);
+            //         let frameinfo = FrameInfo {
+            //             file,
+            //             height,
+            //             width,
+            //             stride,
+            //             format: v,
+            //         };
+            //         state
+            //             .surfaces
+            //             .push_back((frameinfo, frame.clone(), buffer, pool));
+            //     }
+            //     WEnum::Unknown(_e) => {}
+            // },
             zwlr_screencopy_frame_v1::Event::Ready { .. } => {
-                let (frameinfo, frame, buffer, pool) = state.surfaces.pop_front().unwrap();
+                let (frameinfo, frame, buffer, params) = state.surfaces.pop_front().unwrap();
                 frame.destroy();
                 buffer.destroy();
-                pool.destroy();
+                params.destroy();
                 let pixels = match &state.algorithm {
                     AmbientAlgorithm::Samples => state.get_pixel_samples(frameinfo),
                     AmbientAlgorithm::Average => state.get_pixel_average(frameinfo),
+                    AmbientAlgorithm::Test => state.get_pixel_test(frameinfo),
                 };
-                // assert_eq!(pixels.len(), state.led_config.leds.len() * 3);
-                // let pixels = vec![0, 0, 0];
                 state.latest_frame = Some(pixels);
             }
             _ => (),
