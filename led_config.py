@@ -1,15 +1,18 @@
-from PIL import Image, ImageDraw
 import json
+from itertools import cycle
+
+from PIL import Image, ImageDraw
 
 img = Image.open("screen.png")
 
 h = 1440
 w = 2560
 
-edges = [w, h]
+SIZE_MOD = 200
+
+edges = cycle([h, w])
 segments = [20, 40, 20, 40]  # 120 leds
-mods = [(1, 1), (1, 0), (0, 0), (0, 1)]
-mods2 = [()]
+mods = ((1, 1), (1, 0), (0, 0), (0, 1))
 """
 0, 0                2560, 0
 
@@ -20,26 +23,63 @@ mods2 = [()]
 # with open("config.json") as f:
 #     conf = json.load(f)["leds"]
 
-conf = []
-i = 3
-seg = segments[i]
-edge = edges[i % 2]
-next_edge = edges[(i + 1) % 2]
-gap = next_edge / seg
-xmod, ymod = mods[i % 4]
-start = w * xmod, h * ymod
-for y in range(seg):
-    draw = ImageDraw.Draw(img)
-    coords = [
-        start[0] + (gap * y),
-        start[1] - gap,
-        start[0] + (gap * (y + 1)),
-        start[1],
-    ]
-    conf.append([int(x) for x in coords])
-    draw.rectangle(coords, fill=None, outline=(255, 255, 255))
-img.show()
+for i, segment in enumerate(segments):
+    start = (w * mods[i][0], h * mods[i][1])  # the coordinate to start calculating from
+    end = (w * mods[(i + 1) % 4][0], h * mods[(i + 1) % 4][1])
+    edge = next(edges)  # the current edge size
+    size = edge // segment  # the length of the pixel square edge
+    coords = []
 
+    if edge == h:
+        size_mod = 0
+        dmod = -1 if start[1] > end[1] else 1
+        for y in range(start[1], end[1], size * dmod):
+            if dmod == -1:
+                coords.append(
+                    [
+                        (
+                            start[0] + (size * dmod) + (size_mod * dmod),
+                            y + (size * dmod),
+                        ),
+                        (start[0], y),
+                    ]
+                )
+            else:
+                coords.append(
+                    [
+                        (start[0], y),
+                        (
+                            start[0] + (size * dmod) + (size_mod * dmod),
+                            y + (size * dmod),
+                        ),
+                    ]
+                )
+    else:
+        size_mod = SIZE_MOD
+        dmod = -1 if start[0] > end[0] else 1
+        for x in range(start[0], end[0], size * dmod):
+            if dmod == -1:
+                bottom_right = (
+                    x,
+                    start[1] + (size * dmod * -1) + (size_mod * dmod * -1),
+                )
+                top_left = (x + (size * dmod), start[1])
+            else:
+                top_left = (x, start[1] + (size * dmod * -1) + (size_mod * dmod * -1))
+                bottom_right = (x + (size * dmod), start[1])
+            coords.append([top_left, bottom_right])
+    # print(f"Segment {i} {start} - {end}: {len(coords)}, {coords}")
+    #
+    # assert (
+    #     len(coords) == segment
+    # ), f"Segment {i} {segment} does not have enough LEDs: {start}-{end}, {edge}, {coords}, {len(coords)}"
+    #
+
+    draw = ImageDraw.Draw(img)
+    for tleft, bright in coords:
+        draw.rectangle((tleft, bright), fill=None, outline=(255, 255, 255))
+# img.show()
+print(json.dumps({"leds": coords}))
 
 # with open("config.json", "w") as f:
 #     json.dump({"leds": conf}, f, indent=4)

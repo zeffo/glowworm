@@ -3,8 +3,10 @@ use std::{
     fs::File,
     io::Cursor,
     os::fd::BorrowedFd,
-    time::{SystemTime, UNIX_EPOCH},
+    time::{self, SystemTime, UNIX_EPOCH},
 };
+
+use color_thief::get_palette;
 
 use image::codecs::png::PngEncoder;
 use image::{ExtendedColorType, ImageEncoder};
@@ -327,7 +329,7 @@ impl AmbientState {
     }
     fn get_pixel_samples(&self, frameinfo: DmabufFrameInfo) -> Vec<u8> {
         let mmap = unsafe { MmapMut::map_mut(&File::from(frameinfo.file)).unwrap() };
-        let mut pixels = vec![];
+        let mut pixels = Vec::with_capacity(self.led_config.leds.len() * 3);
         for (x, y, _, _) in &self.led_config.leds {
             let idx = ((*y as u32 * frameinfo.width + *x as u32) * 4) as usize;
             pixels.push(mmap[idx + 2]);
