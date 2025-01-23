@@ -6,8 +6,6 @@ use std::{
     time::{self, SystemTime, UNIX_EPOCH},
 };
 
-use color_thief::get_palette;
-
 use image::codecs::png::PngEncoder;
 use image::{ExtendedColorType, ImageEncoder};
 use memmap::MmapMut;
