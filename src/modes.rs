@@ -3,7 +3,7 @@ use std::{
     fs::File,
     io::Cursor,
     os::fd::BorrowedFd,
-    time::{self, SystemTime, UNIX_EPOCH},
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use image::codecs::png::PngEncoder;
