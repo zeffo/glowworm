@@ -1,20 +1,20 @@
-struct GammaValues {
-    pub r: u8,
-    pub g: u8,
-    pub b: u8,
+struct Pixel {
+    r: u8,
+    g: u8,
+    b: u8,
 }
 
-pub struct GammaLookup {
-    table: Vec<GammaValues>,
+pub struct GammaMap {
+    map: Vec<Pixel>,
 }
 
-impl GammaLookup {
+impl GammaMap {
     pub fn new() -> Self {
         Self {
-            table: (0_u8..=255)
-                .map(|index| {
-                    let f = ((index as f64) / 255.0).powf(2.8);
-                    GammaValues {
+            map: (0_u8..=255)
+                .map(|idx| {
+                    let f = ((idx as f64) / 255.0).powf(2.8);
+                    Pixel {
                         r: (f * 255.0) as u8,
                         g: (f * 240.0) as u8,
                         b: (f * 220.0) as u8,
@@ -25,15 +25,15 @@ impl GammaLookup {
     }
 
     pub fn red(&self, r: u8) -> u8 {
-        self.table[usize::from(r)].r
+        self.map[usize::from(r)].r
     }
 
     pub fn green(&self, g: u8) -> u8 {
-        self.table[usize::from(g)].g
+        self.map[usize::from(g)].g
     }
 
     pub fn blue(&self, b: u8) -> u8 {
-        self.table[usize::from(b)].b
+        self.map[usize::from(b)].b
     }
 
     pub fn correct_rgb(&self, rgb: &mut [u8]) {
@@ -43,7 +43,7 @@ impl GammaLookup {
     }
 }
 
-impl Default for GammaLookup {
+impl Default for GammaMap {
     fn default() -> Self {
         Self::new()
     }

@@ -8,13 +8,8 @@ opt-level = 3
 lto = true
 
 [dependencies]
-colorgrad = "0.7"
-libwayshot = "0.3.0"
 serialport = "4.3.0"
-image = { version = "0.25.4" }
 serde_json = "1.0.116"
-kmeans_colors = "0.6.0"
-palette = "0.7.6"
 serde = { version = "1.0.201", features = ["derive"] }
 wayland-protocols-wlr = { version = "0.3.4", features = ["client"] }
 wayland-client = "0.31.6"
@@ -25,5 +20,5 @@ wayland-protocols = { version = "0.32.4", features = [
 drm-fourcc = "2.2.0"
 drm = "0.14.0"
 nix = { version = "0.29.0", features = ["fs", "mman"] }
-memmap = "0.7.0"
 gbm = "0.18.0"
+memmap = "0.7.0"
