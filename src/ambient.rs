@@ -132,7 +132,7 @@ impl Dispatch<ZwlrScreencopyFrameV1, ()> for State {
     ) {
         match event {
             zwlr_screencopy_frame_v1::Event::Failed => {
-                println!("failed")
+                println!("failed to read frame!")
             }
             zwlr_screencopy_frame_v1::Event::LinuxDmabuf {
                 format,
