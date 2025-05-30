@@ -43,6 +43,7 @@ impl Card {
     }
 }
 
+#[allow(dead_code)]
 struct FrameMeta {
     file: OwnedFd,
     height: u32,
@@ -262,14 +263,14 @@ impl Dispatch<WlRegistry, GlobalListContents> for State {
 pub struct Ambient {
     state: State,
     queue: EventQueue<State>,
-    conn: Connection
+    _conn: Connection
 }
 
 impl Ambient {
     pub fn new(algorithm: Algorithm, leds: Vec<(u16, u16, u16, u16)>) -> Self {
         let conn = Connection::connect_to_env().unwrap();
         let (state, queue) = State::from_connection(&conn, algorithm, leds);
-        Self { state, queue, conn }
+        Self { state, queue, _conn: conn }
     }
 }
 
