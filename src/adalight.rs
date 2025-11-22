@@ -1,35 +1,26 @@
-use serialport::SerialPort;
-
-use crate::{modes::GlowMode, GammaLookup};
 use std::time::Duration;
 
-struct Packet {
-    _data: Vec<u8>,
-}
+use serialport::SerialPort;
 
-#[allow(dead_code)]
+use crate::{gamma::GammaMap, modes::Mode};
+
+/// A packet of data to send to the serial port.
+struct Packet(Vec<u8>);
+
 impl Packet {
+
     fn slice(&self) -> &[u8] {
-        &self._data
-    }
-    fn header(&self) -> &[u8] {
-        &self._data[..6]
-    }
-    fn payload(&self) -> &[u8] {
-        &self._data[6..]
+        self.0.as_slice()
     }
 }
 
-#[allow(dead_code)]
 pub struct Adalight<'a> {
     port: Box<dyn SerialPort>,
-    baud_rate: u32,
-    leds: u16,
     header: [u8; 6],
-    gamma: GammaLookup,
-    mode: &'a mut dyn GlowMode,
-    max_brightness: u8,
+    gamma: GammaMap,
+    mode: &'a mut dyn Mode
 }
+
 
 impl<'a> Adalight<'a> {
     pub fn new(
@@ -37,8 +28,7 @@ impl<'a> Adalight<'a> {
         baud_rate: u32,
         leds: u16,
         timeout: Duration,
-        mode: &'a mut dyn GlowMode,
-        max_brightness: u8,
+        mode: &'a mut dyn Mode,
     ) -> Self {
         let header = Self::get_header(leds);
         let mut port = serialport::new(port, baud_rate)
@@ -48,15 +38,12 @@ impl<'a> Adalight<'a> {
         port.write_data_terminal_ready(true).unwrap();
         port.set_flow_control(serialport::FlowControl::Hardware)
             .unwrap();
-        let gamma = GammaLookup::new();
+        let gamma = GammaMap::new();
         Self {
             port,
-            baud_rate,
-            leds,
             header,
             gamma,
             mode,
-            max_brightness,
         }
     }
 
@@ -76,8 +63,8 @@ impl<'a> Adalight<'a> {
 
     fn pack(&self, payload: &mut [u8]) -> Packet {
         self.gamma_correct(payload);
-        let _data = [&self.header, &*payload].concat();
-        Packet { _data }
+        let data = [&self.header, &*payload].concat();
+        Packet(data)
     }
 
     fn send_packet(&mut self, packet: &Packet) {
@@ -86,7 +73,7 @@ impl<'a> Adalight<'a> {
 
     pub fn start(&mut self) {
         loop {
-            let mut colors = self.mode.get_colors();
+            let mut colors = self.mode.render();
             let packet = self.pack(&mut colors);
             self.send_packet(&packet);
         }

@@ -1,48 +1,40 @@
 use std::fs::read_to_string;
 use std::time::Duration;
+use std::env;
 
-use colorgrad::Color;
 mod adalight;
+mod ambient;
 mod gamma;
 mod modes;
 
 use adalight::Adalight;
-use gamma::GammaLookup;
-use modes::{Ambient, AmbientAlgorithm, LEDConfig};
+use ambient::{Algorithm, Ambient};
+use serde::{Deserialize, Serialize};
 
-struct GlowColor {
-    r: u8,
-    g: u8,
-    b: u8,
-}
-
-#[allow(dead_code)]
-impl GlowColor {
-    fn from_rgb(r: u8, g: u8, b: u8) -> Self {
-        GlowColor { r, g, b }
-    }
-    fn to_color(&self) -> Color {
-        Color::from_rgba8(self.r, self.g, self.b, 255)
-    }
+#[derive(Serialize, Deserialize)]
+struct Config<'a> {
+    port: &'a str,
+    baud_rate: u32,
+    leds: Vec<(u16, u16, u16, u16)>, // vec of capture areas for each LED
 }
 
 fn main() {
-    // let start = GlowColor::from_rgb(119, 142, 217);
-    // let end = GlowColor::from_rgb(219, 99, 235);
-    // let colors = vec![start.to_color(), end.to_color(), end.to_color(), start.to_color()];
-    const LEDS: u16 = 120;
-    // let mut mode = DynamicGradient::from_colors(colors, LEDS);
 
-    let conf = read_to_string("/home/aman/.config/glowworm/config.json").unwrap();
-    let config: LEDConfig = serde_json::from_str(&conf).unwrap();
-    let mut mode = Ambient::new(config, AmbientAlgorithm::Samples);
+    let mut path = env::home_dir().unwrap();
+    path.push(".config/glowworm/config.json");
+
+
+    let data = read_to_string(path)
+        .expect("failed to read config file");
+    let conf: Config = serde_json::from_str(&data).expect("failed to parse config file");
+
+    let mut mode = Ambient::new(Algorithm::Samples, conf.leds.clone());
     let mut ada = Adalight::new(
-        "/dev/ttyACM0",
-        115200,
-        LEDS,
+        conf.port,
+        conf.baud_rate,
+        conf.leds.len().try_into().unwrap(),
         Duration::from_millis(1000),
         &mut mode,
-        180,
     );
     ada.start();
 }
